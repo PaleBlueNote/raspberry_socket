@@ -145,7 +145,16 @@ void* thread_socket_to_output(void* arg) {
         char buffer[1024];
         int valread = read(server_socket, buffer, 1024);
         if (valread > 0) {
-            printf("Message from server: %s\n", buffer);
+            if (strcmp(buffer, "Countdown Start") == 0) {
+              //other thread 3 sec countdown funtion
+            }
+            else if (strcmp(buffer, "Game Start!") == 0){
+              //other thread 2 minutes timer funtion
+            }
+            else{
+              printf("Message from server: %s\n", buffer);
+            }
+
         }
     }
 }

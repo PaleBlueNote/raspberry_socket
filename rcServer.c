@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <stdbool.h>
 
 #define IN 0
 #define OUT 1
@@ -128,14 +129,53 @@ void error_handling(char *message)
 	fputc('\n', stderr);
 	exit(1);
 }
+
+bool server_ready_state = false;
+bool client_ready_state = false;
+
+void* check_button_states(void* arg) {
+    //서버 버튼 받기
+    while (1) {
+      //버튼 입력 받아 state변경
+      if (GPIORead(PIN) == 0) {
+        server_ready_state = !server_ready_state;
+        printf("Client button state changed: %s\n", client_ready_state ? "true" : "false");
+      }
+      usleep(100000); // 0.1초마다 버튼 상태 체크
+    }
+}
+
 void* thread_input_to_socket(void* arg) {
     int client_socket = *(int*)arg;
     while (1) {
-        if (GPIORead(PIN) == 0) {
-            write(client_socket, "server button pressed", strlen("server button pressed"));
+        // 1초마다 state 상태 확인
+        usleep(1000000); // 1초
+        printf("Server Ready State: %s, Client Ready State: %s\n",
+               server_ready_state ? "true" : "false",
+               client_ready_state ? "true" : "false");
+
+        // 3초 카운트 다운
+        if (server_ready_state && client_ready_state) {
+            for (int i = 3; i > 0; i--) {
+                usleep(1000000); // 1초
+                printf("Countdown: %d seconds\n", i);
+                write(client_socket, "Countdown Start", strlen("Countdown Start"));
+                
+                // ready state 변경 시 카운트 취소
+                if (!server_ready_state || !client_ready_state) {
+                    printf("Ready Canceled\n");
+                    write(client_socket, "Ready Canceled", strlen("Ready Canceled"));
+                    break;
+                }
+            }
+            if (server_ready_state && client_ready_state) {
+                printf("Game Start!\n");
+                write(client_socket, "Game Start!", strlen("Game Start!"));
+                // 여기에 2분 타이머 코드 추가해야 함
+            }
         }
-        usleep(100000); // 0.1초마다 버튼 상태 체크
     }
+    return NULL;
 }
 
 void* thread_socket_to_output(void* arg) {
@@ -144,7 +184,10 @@ void* thread_socket_to_output(void* arg) {
         char buffer[1024];
         int valread = read(client_socket, buffer, 1024);
         if (valread > 0) {
-            printf("Message from client: %s\n", buffer);
+            if (strcmp(buffer, "client button pressed") == 0) {
+                client_ready_state = !client_ready_state;
+                printf("Client button state changed: %s\n", client_ready_state ? "true" : "false");
+            }
         }
     }
 }
@@ -201,15 +244,18 @@ int main(int argc, char *argv[]) {
         error_handling("GPIO Write failed");
         return 3;
     }
-    pthread_t input_thread, output_thread;
+
+    pthread_t input_thread, output_thread, check_button_thread;
     pthread_create(&input_thread, NULL, thread_input_to_socket, (void*)&clnt_sock);
     pthread_create(&output_thread, NULL, thread_socket_to_output, (void*)&clnt_sock);
+    pthread_create(&check_button_thread, NULL, check_button_states, (void*)&clnt_sock);
 
     pthread_join(input_thread, NULL);
     pthread_join(output_thread, NULL);
+    pthread_join(check_button_thread, NULL);
 
     close(clnt_sock);	
-	close(serv_sock);
+	  close(serv_sock);
 
     if (GPIOUnexport(POUT) == -1 || GPIOUnexport(PIN) == -1) {
         return 4;

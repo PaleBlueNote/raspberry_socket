@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <stdbool.h>
 
 #define IN 0
 #define OUT 1
@@ -169,24 +170,50 @@ void* thread_rc_socket_to_output(void* arg) {
 
 void* thread_input_to_clnt_socket(void* arg) {
     int client_socket = *(int*)arg;
-    int sec_counter = 0;
+    int centi_sec_counter = 0;
+    int countdown = 3;
+    bool server_ready_state = false;
+    bool client_ready_state = false;
+
     while (1) {
         //0.01초 마다 실행해야 하는 작업---------------------------------------------------
-        if (GPIORead(PIN) == 0 ) { //조이스틱 값이 변경되었을 때
+        if (GPIORead(조이스틱)) { //조이스틱 값이 변경되었을 때
             write(rc_sock, "조이스틱 값", strlen("조이스틱 값"));
         }
-
-
         //0.01초 마다 실행해야 하는 작업---------------------------------------------------
 
+        //0.1초마다
+        if((centi_sec_counter%10)==0){
+            if (GPIORead(PIN) == 0) {
+              server_ready_state = !server_ready_state;
+              printf("sever button state changed: %s\n", server_ready_state ? "true" : "false");
+            }
+        }
+        //0.1초마다
       
-        if(sec_counter==100){
-        //1초 마다 실행해야 하는 작업------------------------------------------------------
-        //타이머 함수
-        //1초 마다 실행해야 하는 작업------------------------------------------------------
+        if((centi_sec_counter%100)==0){
+          //1초 마다 실행해야 하는 작업------------------------------------------------------
+          if(!(server_ready_state && client_ready_state)){
+            countdown = 3;//카운트 다운 초기화
+            printf("Server Ready State: %s, Client Ready State: %s\n",
+                server_ready_state ? "true" : "false",
+                client_ready_state ? "true" : "false");
+          }
+          else{
+            //count down 3초 보내기          
+            write(client_socket, "Countdown Start", strlen("Countdown Start"));
+            printf("Countdown: %d seconds\n", countdown);
+            countdown--;
+          }
+          //countdown이 0이면 game start
+          if (countdown==0) {
+            printf("Game Start!\n");
+            write(client_socket, "Game Start!", strlen("Game Start!"));
+          }
+          //1초 마다 실행해야 하는 작업------------------------------------------------------
         }
 
-        sec_counter ++;
+        centi_sec_counter++;
         usleep(10000); // 0.01초마다 버튼 상태 체크
     }
 }
@@ -197,6 +224,7 @@ void* thread_clnt_socket_to_output(void* arg) {
         char buffer[1024];
         int valread = read(client_socket, buffer, 1024);
         if (valread > 0) {
+          if()  
             printf("Message from client: %s\n", buffer);
         }
     }

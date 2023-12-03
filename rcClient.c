@@ -22,6 +22,8 @@
 #define DIRECTION_MAX 40
 
 int countdown_start = false;
+bool stop_skill = true;
+bool chaos_skill = true;
 
 static int GPIOExport(int pin) {
     #define BUFFER_MAX 3
@@ -127,20 +129,27 @@ static int GPIOWrite(int pin, int value) {
 
 void error_handling(char *message)
 {
-	fputs(message, stderr);
-	fputc('\n', stderr);
-	exit(1);
+   fputs(message, stderr);
+   fputc('\n', stderr);
+   exit(1);
 }
 
 void* thread_input_to_rc_socket(void* arg) {
     int rc_sock = *(int*)arg;
     int centi_sec_counter = 0;
-    int countdown = 3;
 
     while (1) {
         //0.01초 마다 실행해야 하는 작업---------------------------------------------------
         if (GPIORead(PIN) == 0 ) { //조이스틱 값이 변경되었을 때
-            write(rc_sock, "조이스틱 값", strlen("조이스틱 값"));
+          write(rc_clnt_sock, "조이스틱 값", strlen("조이스틱 값"));
+        }
+        if(stop_skill){
+          write(rc_clnt_sock, "stop_skill", strlen("stop_skill"));
+          stop_skill = false;
+        }
+        if(chaos_skill){
+          write(rc_clnt_sock, "chaos_skill", strlen("chaos_skill"));
+          chaos_skill = false;
         }
         //0.01초 마다 실행해야 하는 작업---------------------------------------------------
 
@@ -235,10 +244,10 @@ void* thread_ctrl_socket_to_output(void* arg) {
           if (strcmp(buffer, "Game Start!") == 0) {
             printf("Game Start!\n");
           }
-          if (strcmp(buffer, "sever stop skill button pressed") == 0) {
+          if (strcmp(buffer, "server stop skill button pressed") == 0) {
             //모터멈춤
           }
-          if (strcmp(buffer, "sever chaos skill button pressed") == 0) {
+          if (strcmp(buffer, "server chaos skill button pressed") == 0) {
             //모터 반대로
           }
         }

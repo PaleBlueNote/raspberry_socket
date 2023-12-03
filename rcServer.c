@@ -21,6 +21,9 @@
 #define VALUE_MAX 40
 #define DIRECTION_MAX 40
 
+bool server_ready_state = false;
+bool client_ready_state = false;
+
 static int GPIOExport(int pin) {
 #define BUFFER_MAX 3
   char buffer[BUFFER_MAX];
@@ -132,24 +135,29 @@ void error_handling(char *message)
 
 void* thread_input_to_rc_socket(void* arg) {
     int rc_sock = *(int*)arg;
-    int sec_counter = 0;
+    int centi_sec_counter = 0;
+    int countdown = 3;
+
     while (1) {
         //0.01초 마다 실행해야 하는 작업---------------------------------------------------
         if (GPIORead(PIN) == 0 ) { //조이스틱 값이 변경되었을 때
             write(rc_sock, "조이스틱 값", strlen("조이스틱 값"));
         }
-
-
         //0.01초 마다 실행해야 하는 작업---------------------------------------------------
 
-      
-        if(sec_counter==100){
-        //1초 마다 실행해야 하는 작업------------------------------------------------------
-        //타이머 함수
-        //1초 마다 실행해야 하는 작업------------------------------------------------------
-        }
+        //0.1초마다
+        if((centi_sec_counter%10)==0){
 
-        sec_counter ++;
+        }
+        //0.1초마다
+
+        //1초 마다 실행해야 하는 작업------------------------------------------------------
+        if((centi_sec_counter%100)==0){
+
+        }
+        //1초 마다 실행해야 하는 작업------------------------------------------------------
+
+        centi_sec_counter++;
         usleep(10000); // 0.01초마다 버튼 상태 체크
     }
 }
@@ -160,9 +168,9 @@ void* thread_rc_socket_to_output(void* arg) {
         char buffer[1024];
         int valread = read(rc_sock, buffer, 1024);
         if (valread > 0) {
-          //rc카에서 읽어드린 값
+          //rc카에서 읽어드린 값 
           if(strcmp(buffer,"터치센서건드림")){
-            printf("Message from rc: %s\n", buffer);
+            //game over
           }
         }
     }
@@ -172,14 +180,9 @@ void* thread_input_to_clnt_socket(void* arg) {
     int client_socket = *(int*)arg;
     int centi_sec_counter = 0;
     int countdown = 3;
-    bool server_ready_state = false;
-    bool client_ready_state = false;
 
     while (1) {
         //0.01초 마다 실행해야 하는 작업---------------------------------------------------
-        if (GPIORead(조이스틱)) { //조이스틱 값이 변경되었을 때
-            write(rc_sock, "조이스틱 값", strlen("조이스틱 값"));
-        }
         //0.01초 마다 실행해야 하는 작업---------------------------------------------------
 
         //0.1초마다
@@ -187,6 +190,14 @@ void* thread_input_to_clnt_socket(void* arg) {
             if (GPIORead(PIN) == 0) {
               server_ready_state = !server_ready_state;
               printf("sever button state changed: %s\n", server_ready_state ? "true" : "false");
+            }
+            if (GPIORead(멈춤 스킬버튼핀) == 0) {
+              printf("sever stop skill button pressed");
+              write(client_socket, "sever stop skill button pressed", strlen("sever stop skill button pressed"));
+            }
+            if (GPIORead(카오스 스킬버튼핀) == 0) {
+              printf("sever chaos skill button pressed");
+              write(client_socket, "sever chaos skill button pressed", strlen("sever chaos skill button pressed"));
             }
         }
         //0.1초마다
@@ -224,8 +235,16 @@ void* thread_clnt_socket_to_output(void* arg) {
         char buffer[1024];
         int valread = read(client_socket, buffer, 1024);
         if (valread > 0) {
-          if()  
-            printf("Message from client: %s\n", buffer);
+          if (strcmp(buffer, "client start button pressed") == 0) {
+                client_ready_state = !client_ready_state;
+                printf("Client button state changed: %s\n", client_ready_state ? "true" : "false");
+          }
+          if (strcmp(buffer, "client stop skill button pressed") == 0) {
+            //server모터멈춤
+          }
+          if (strcmp(buffer, "client chaos skill button pressed") == 0) {
+            //server모터 반대로
+          }
         }
     }
 }

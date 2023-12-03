@@ -29,6 +29,7 @@ bool stop_skill = true;
 bool chaos_skill = true;
 bool countdown_start = false;
 bool game_start = false;
+bool touched = false; //added
 
 static int GPIOExport(int pin) {
 #define BUFFER_MAX 3
@@ -196,7 +197,7 @@ void* thread_input_to_rc_clnt_socket(void* arg) {
                 print_str("s ");
 
                 // Check for touch sensor detection        
-                if (!digitalRead(PIR)) {       
+                if (!touched) {       
                     --time_limit;
                 }
 
@@ -211,10 +212,6 @@ void* thread_input_to_rc_clnt_socket(void* arg) {
                     lcd_m(LINE1);
                     print_str("Police win!");
 
-                    // Close client socket and exit
-                    close(clnt_sock);
-                    close(serv_sock);
-
                     detected = 1;
                     exit(0);
                 }
@@ -226,8 +223,11 @@ void* thread_input_to_rc_clnt_socket(void* arg) {
 
                 lcd_m(LINE1);
                 print_str("Theif win!");
+
+                detected = 0;
+                exit(0);
             }
-        }
+            }
         //1초 마다 실행해야 하는 작업------------------------------------------------------
         }
         
@@ -244,7 +244,7 @@ void* thread_rc_clnt_socket_to_output(void* arg) {
         if (valread > 0) {
           //rc카에서 읽어드린 값 
           if(strcmp(buffer,"터치센서건드림")){
-            //game over
+            
           }
         }
     }
@@ -320,6 +320,10 @@ void* thread_ctrl_clnt_socket_to_output(void* arg) {
           }
           if (strcmp(buffer, "client chaos skill button pressed") == 0) {
             //server모터 반대로
+            
+          }
+          if (strcmp(buffer, "touched") == 0) {
+            touched = true;
           }
         }
     }

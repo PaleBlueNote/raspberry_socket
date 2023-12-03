@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <stdbool.h>
 
 #define IN 0
 #define OUT 1
@@ -19,6 +20,8 @@
 #define POUT 21
 #define VALUE_MAX 40
 #define DIRECTION_MAX 40
+
+int countdown_start = false;
 
 static int GPIOExport(int pin) {
     #define BUFFER_MAX 3
@@ -172,8 +175,8 @@ void* thread_rc_socket_to_output(void* arg) {
     }
 }
 
-void* thread_input_to_clnt_socket(void* arg) {
-    int client_socket = *(int*)arg;
+void* thread_input_to_ctrl_socket(void* arg) {
+    int ctrl_clnt_socket = *(int*)arg;
     int centi_sec_counter = 0;
     int countdown = 3;
 
@@ -184,38 +187,33 @@ void* thread_input_to_clnt_socket(void* arg) {
         //0.1초마다
         if((centi_sec_counter%10)==0){
             if (GPIORead(PIN) == 0) {
-              server_ready_state = !server_ready_state;
-              printf("sever button state changed: %s\n", server_ready_state ? "true" : "false");
+              printf("client start button pressed");
+              write(ctrl_clnt_socket, "client start button pressed", strlen("client start button pressed"));
             }
             if (GPIORead(멈춤 스킬버튼핀) == 0) {
-              printf("sever stop skill button pressed");
-              write(client_socket, "sever stop skill button pressed", strlen("sever stop skill button pressed"));
+              printf("client stop skill button pressed");
+              write(ctrl_clnt_socket, "client stop skill button pressed", strlen("client stop skill button pressed"));
             }
             if (GPIORead(카오스 스킬버튼핀) == 0) {
-              printf("sever chaos skill button pressed");
-              write(client_socket, "sever chaos skill button pressed", strlen("sever chaos skill button pressed"));
+              printf("client chaos skill button pressed");
+              write(ctrl_clnt_socket, "client chaos skill button pressed", strlen("client chaos skill button pressed"));
             }
         }
         //0.1초마다
       
         if((centi_sec_counter%100)==0){
           //1초 마다 실행해야 하는 작업------------------------------------------------------
-          if(!(server_ready_state && client_ready_state)){
+          if(!countdown_start){
             countdown = 3;//카운트 다운 초기화
-            printf("Server Ready State: %s, Client Ready State: %s\n",
-                server_ready_state ? "true" : "false",
-                client_ready_state ? "true" : "false");
           }
           else{
             //count down 3초 보내기          
-            write(client_socket, "Countdown Start", strlen("Countdown Start"));
             printf("Countdown: %d seconds\n", countdown);
             countdown--;
           }
           //countdown이 0이면 game start
           if (countdown==0) {
             printf("Game Start!\n");
-            write(client_socket, "Game Start!", strlen("Game Start!"));
           }
           //1초 마다 실행해야 하는 작업------------------------------------------------------
         }
@@ -225,21 +223,23 @@ void* thread_input_to_clnt_socket(void* arg) {
     }
 }
 
-void* thread_clnt_socket_to_output(void* arg) {
-    int client_socket = *(int*)arg;
+void* thread_ctrl_socket_to_output(void* arg) {
+    int ctrl_clnt_socket = *(int*)arg;
     while (1) {
         char buffer[1024];
-        int valread = read(client_socket, buffer, 1024);
+        int valread = read(ctrl_clnt_socket, buffer, 1024);
         if (valread > 0) {
-          if (strcmp(buffer, "client start button pressed") == 0) {
-                client_ready_state = !client_ready_state;
-                printf("Client button state changed: %s\n", client_ready_state ? "true" : "false");
+          if (strcmp(buffer, "Countdown Start") == 0) {
+            countdown_start= true;
           }
-          if (strcmp(buffer, "client stop skill button pressed") == 0) {
-            //server모터멈춤
+          if (strcmp(buffer, "Game Start!") == 0) {
+            printf("Game Start!\n");
           }
-          if (strcmp(buffer, "client chaos skill button pressed") == 0) {
-            //server모터 반대로
+          if (strcmp(buffer, "sever stop skill button pressed") == 0) {
+            //모터멈춤
+          }
+          if (strcmp(buffer, "sever chaos skill button pressed") == 0) {
+            //모터 반대로
           }
         }
     }
@@ -259,7 +259,7 @@ int main(int argc, char *argv[]) {
 
     //rc카 쪽 서버소켓만들기
     if ((rc_serv_sock = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
-        error_handling("Socket creation failed");
+        error_handling("RC Socket creation failed");
         exit(EXIT_FAILURE);
     }
 
@@ -269,32 +269,37 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    //rc카 서버역할 하려고 포트 열기
+    //rc카 서버 주소설정
     memset(&rc_serv_sock, 0, sizeof(rc_serv_sock));
     rc_serv_sock.sin_family = AF_INET;
     rc_serv_sock.sin_addr.s_addr = htonl(INADDR_ANY);
     rc_serv_sock.sin_port = htons(atoi(argv[3]));
 
+    //control 서버 주소설정
     memset(&ctrl_server_addr, 0, sizeof(ctrl_server_addr));
     ctrl_server_addr.sin_family = AF_INET;
     ctrl_server_addr.sin_addr.s_addr = inet_addr(argv[1]);
     ctrl_server_addr.sin_port = htons(atoi(argv[2]));
 
+    //rc카 서버 & 클라이언트 바인드
     if (bind(rc_serv_sock, (struct sockaddr *)&rc_serv_addr, sizeof(rc_serv_addr)) < 0) {
-        error_handling("Bind failed");
+        error_handling("RC Bind failed");
         exit(EXIT_FAILURE);
     }
-
+    
+    //rc카 서버 listen
     if (listen(rc_serv_sock, 3) < 0) {
         error_handling("Listen failed");
         exit(EXIT_FAILURE);
     }
 
+    //rc카 서버 accept
     if ((rc_clnt_sock = accept(rc_serv_sock, (struct sockaddr *)&rc_clnt_addr, &rc_clnt_addr_size)) < 0) {
         error_handling("Accept rc socket failed");
         exit(EXIT_FAILURE);
     }
 
+    //control 서버 연결
     if (connect(ctrl_clnt_sock, (struct sockaddr *)&ctrl_server_addr, sizeof(ctrl_server_addr)) < 0) {
         error_handling("Connection failed");
         exit(EXIT_FAILURE);
@@ -315,21 +320,23 @@ int main(int argc, char *argv[]) {
         return 3;
     }
 
-    pthread_t rc_input_thread, rc_output_thread, clnt_input_thread, clnt_output_thread;
+    pthread_t rc_input_thread, rc_output_thread, ctrl_input_thread, ctrl_output_thread;
     //rc카 라즈베리파이 입출력 thread
-    pthread_create(&rc_input_thread, NULL, thread_input_to_rc_socket, (void*)&rc_sock);
-    pthread_create(&rc_output_thread, NULL, thread_rc_socket_to_output, (void*)&rc_sock);
+    pthread_create(&rc_input_thread, NULL, thread_input_to_rc_socket, (void*)&rc_clnt_sock);
+    pthread_create(&rc_output_thread, NULL, thread_rc_socket_to_output, (void*)&rc_clnt_sock);
 
-    //도둑조종기 라즈베리파이 입출력 thread
-    pthread_create(&clnt_input_thread, NULL, thread_input_to_clnt_socket, (void*)&clnt_sock);
-    pthread_create(&clnt_output_thread, NULL, thread_clnt_socket_to_output, (void*)&clnt_sock);
+    //경찰(서버)조종기쪽으로 라즈베리파이 입출력 thread
+    pthread_create(&ctrl_input_thread, NULL, thread_input_to_ctrl_socket, (void*)&ctrl_clnt_sock);
+    pthread_create(&ctrl_output_thread, NULL, thread_ctrl_socket_to_output, (void*)&ctrl_clnt_sock);
 
     pthread_join(rc_input_thread, NULL);
     pthread_join(rc_output_thread, NULL);
-    pthread_join(clnt_input_thread, NULL);
-    pthread_join(clnt_output_thread, NULL);
+    pthread_join(ctrl_input_thread, NULL);
+    pthread_join(ctrl_output_thread, NULL);
 
-    close(client_sock);
+    close(rc_serv_sock);
+    close(rc_clnt_sock);
+    close(ctrl_clnt_sock);
 
     return 0;
 }

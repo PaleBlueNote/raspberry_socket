@@ -133,15 +133,15 @@ void error_handling(char *message)
 	exit(1);
 }
 
-void* thread_input_to_rc_socket(void* arg) {
-    int rc_sock = *(int*)arg;
+void* thread_input_to_rc_clnt_socket(void* arg) {
+    int rc_clnt_sock = *(int*)arg;
     int centi_sec_counter = 0;
     int countdown = 3;
 
     while (1) {
         //0.01초 마다 실행해야 하는 작업---------------------------------------------------
         if (GPIORead(PIN) == 0 ) { //조이스틱 값이 변경되었을 때
-            write(rc_sock, "조이스틱 값", strlen("조이스틱 값"));
+            write(rc_clnt_sock, "조이스틱 값", strlen("조이스틱 값"));
         }
         //0.01초 마다 실행해야 하는 작업---------------------------------------------------
 
@@ -162,11 +162,11 @@ void* thread_input_to_rc_socket(void* arg) {
     }
 }
 
-void* thread_rc_socket_to_output(void* arg) {
-    int rc_sock = *(int*)arg;
+void* thread_rc_clnt_socket_to_output(void* arg) {
+    int rc_clnt_sock = *(int*)arg;
     while (1) {
         char buffer[1024];
-        int valread = read(rc_sock, buffer, 1024);
+        int valread = read(rc_clnt_sock, buffer, 1024);
         if (valread > 0) {
           //rc카에서 읽어드린 값 
           if(strcmp(buffer,"터치센서건드림")){
@@ -176,8 +176,8 @@ void* thread_rc_socket_to_output(void* arg) {
     }
 }
 
-void* thread_input_to_clnt_socket(void* arg) {
-    int client_socket = *(int*)arg;
+void* thread_input_to_ctrl_clnt_socket(void* arg) {
+    int ctrl_clnt_sock = *(int*)arg;
     int centi_sec_counter = 0;
     int countdown = 3;
 
@@ -193,11 +193,11 @@ void* thread_input_to_clnt_socket(void* arg) {
             }
             if (GPIORead(멈춤 스킬버튼핀) == 0) {
               printf("sever stop skill button pressed");
-              write(client_socket, "sever stop skill button pressed", strlen("sever stop skill button pressed"));
+              write(ctrl_clnt_sock, "sever stop skill button pressed", strlen("sever stop skill button pressed"));
             }
             if (GPIORead(카오스 스킬버튼핀) == 0) {
               printf("sever chaos skill button pressed");
-              write(client_socket, "sever chaos skill button pressed", strlen("sever chaos skill button pressed"));
+              write(ctrl_clnt_sock, "sever chaos skill button pressed", strlen("sever chaos skill button pressed"));
             }
         }
         //0.1초마다
@@ -212,14 +212,14 @@ void* thread_input_to_clnt_socket(void* arg) {
           }
           else{
             //count down 3초 보내기          
-            write(client_socket, "Countdown Start", strlen("Countdown Start"));
+            write(ctrl_clnt_sock, "Countdown Start", strlen("Countdown Start"));
             printf("Countdown: %d seconds\n", countdown);
             countdown--;
           }
           //countdown이 0이면 game start
           if (countdown==0) {
             printf("Game Start!\n");
-            write(client_socket, "Game Start!", strlen("Game Start!"));
+            write(ctrl_clnt_sock, "Game Start!", strlen("Game Start!"));
           }
           //1초 마다 실행해야 하는 작업------------------------------------------------------
         }
@@ -229,11 +229,11 @@ void* thread_input_to_clnt_socket(void* arg) {
     }
 }
 
-void* thread_clnt_socket_to_output(void* arg) {
-    int client_socket = *(int*)arg;
+void* thread_ctrl_clnt_socket_to_output(void* arg) {
+    int ctrl_clnt_sock = *(int*)arg;
     while (1) {
         char buffer[1024];
-        int valread = read(client_socket, buffer, 1024);
+        int valread = read(ctrl_clnt_sock, buffer, 1024);
         if (valread > 0) {
           if (strcmp(buffer, "client start button pressed") == 0) {
                 client_ready_state = !client_ready_state;
@@ -250,44 +250,65 @@ void* thread_clnt_socket_to_output(void* arg) {
 }
 
 int main(int argc, char *argv[]) {
-    int serv_sock, clnt_sock, rc_sock;
-    struct sockaddr_in serv_addr;
-    struct sockaddr_in clnt_addr;
-    struct sockaddr_in rc_addr;
-    socklen_t clnt_addr_size = sizeof(clnt_addr);
-    socklen_t rc_addr_size = sizeof(rc_addr);
+    int ctrl_serv_sock, ctrl_clnt_sock, rc_serv_sock, rc_clnt_sock;
+    struct sockaddr_in ctrl_serv_addr;
+    struct sockaddr_in ctrl_clnt_addr;
+    struct sockaddr_in rc_serv_addr;
+    struct sockaddr_in rc_clnt_addr;
+    socklen_t ctrl_clnt_addr_size = sizeof(ctrl_clnt_addr);
+    socklen_t rc_clnt_addr_size = sizeof(rc_clnt_addr);
 
     if (argc != 2) {
         printf("Usage : %s <port>\n", argv[0]);
         exit(EXIT_FAILURE);
     }
 
-    if ((serv_sock = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
-        error_handling("Socket creation failed");
+    if ((ctrl_serv_sock = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+        error_handling("Control Socket creation failed");
         exit(EXIT_FAILURE);
     }
 
-    memset(&serv_addr, 0, sizeof(serv_addr));
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    serv_addr.sin_port = htons(atoi(argv[1]));
-
-    if (bind(serv_sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-        error_handling("Bind failed");
+    if ((rc_serv_sock = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+        error_handling("RC Socket creation failed");
         exit(EXIT_FAILURE);
     }
 
-    if (listen(serv_sock, 3) < 0) {
+    memset(&ctrl_serv_addr, 0, sizeof(ctrl_serv_addr));
+    ctrl_serv_addr.sin_family = AF_INET;
+    ctrl_serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    ctrl_serv_addr.sin_port = htons(atoi(argv[1]));
+
+    memset(&rc_serv_addr, 0, sizeof(rc_serv_addr));
+    rc_serv_addr.sin_family = AF_INET;
+    rc_serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    rc_serv_addr.sin_port = htons(atoi(argv[2]));
+
+    if (bind(ctrl_serv_sock, (struct sockaddr *)&ctrl_serv_addr, sizeof(ctrl_serv_addr)) < 0) {
+        error_handling("Control Bind failed");
+        exit(EXIT_FAILURE);
+    }
+
+    if (bind(rc_serv_sock, (struct sockaddr *)&rc_serv_addr, sizeof(rc_serv_addr)) < 0) {
+        error_handling("RC Bind failed");
+        exit(EXIT_FAILURE);
+    }
+
+    if (listen(ctrl_serv_sock, 3) < 0) {
+        error_handling("Listen failed");
+        exit(EXIT_FAILURE);
+    }
+    
+    if (listen(rc_serv_sock, 3) < 0) {
         error_handling("Listen failed");
         exit(EXIT_FAILURE);
     }
 
-    if ((clnt_sock = accept(serv_sock, (struct sockaddr *)&clnt_addr, &clnt_addr_size)) < 0) {
+    if ((ctrl_clnt_sock = accept(ctrl_serv_sock, (struct sockaddr *)&ctrl_clnt_addr, &ctrl_clnt_addr_size)) < 0) {
         error_handling("Accept client socket failed");
         exit(EXIT_FAILURE);
     }
 
-    if ((rc_sock = accept(serv_sock, (struct sockaddr *)&rc_addr, &rc_addr_size)) < 0) {
+    if ((rc_clnt_sock = accept(rc_serv_sock, (struct sockaddr *)&rc_clnt_addr, &rc_clnt_addr_size)) < 0) {
         error_handling("Accept rc socket failed");
         exit(EXIT_FAILURE);
     }
@@ -309,21 +330,21 @@ int main(int argc, char *argv[]) {
 
     pthread_t rc_input_thread, rc_output_thread, clnt_input_thread, clnt_output_thread;
     //rc카 라즈베리파이 입출력 thread
-    pthread_create(&rc_input_thread, NULL, thread_input_to_rc_socket, (void*)&rc_sock);
-    pthread_create(&rc_output_thread, NULL, thread_rc_socket_to_output, (void*)&rc_sock);
+    pthread_create(&rc_input_thread, NULL, thread_input_to_rc_clnt_socket, (void*)&rc_clnt_sock);
+    pthread_create(&rc_output_thread, NULL, thread_rc_clnt_socket_to_output, (void*)&rc_clnt_sock);
 
-    //도둑조종기 라즈베리파이 입출력 thread
-    pthread_create(&clnt_input_thread, NULL, thread_input_to_clnt_socket, (void*)&clnt_sock);
-    pthread_create(&clnt_output_thread, NULL, thread_clnt_socket_to_output, (void*)&clnt_sock);
+    //도둑조종기쪽으로 라즈베리파이 입출력 thread
+    pthread_create(&clnt_input_thread, NULL, thread_input_to_ctrl_clnt_socket, (void*)&ctrl_clnt_sock);
+    pthread_create(&clnt_output_thread, NULL, thread_ctrl_clnt_socket_to_output, (void*)&ctrl_clnt_sock);
 
     pthread_join(rc_input_thread, NULL);
     pthread_join(rc_output_thread, NULL);
     pthread_join(clnt_input_thread, NULL);
     pthread_join(clnt_output_thread, NULL);
 
-    close(rc_sock);
-    close(clnt_sock);	
-	  close(serv_sock);
+    close(rc_clnt_sock);
+    close(ctrl_clnt_sock);	
+	  close(ctrl_serv_sock);
 
     if (GPIOUnexport(POUT) == -1 || GPIOUnexport(PIN) == -1) {
         return 4;

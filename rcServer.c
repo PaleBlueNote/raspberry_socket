@@ -128,17 +128,70 @@ void error_handling(char *message)
 	fputc('\n', stderr);
 	exit(1);
 }
-void* thread_input_to_socket(void* arg) {
-    int client_socket = *(int*)arg;
+
+void* thread_input_to_rc_socket(void* arg) {
+    int rc_sock = *(int*)arg;
+    int sec_counter = 0;
     while (1) {
-        if (GPIORead(PIN) == 0) {
-            write(client_socket, "server button pressed", strlen("server button pressed"));
+        //0.01초 마다 실행해야 하는 작업---------------------------------------------------
+        if (GPIORead(PIN) == 0 ) { //조이스틱 값이 변경되었을 때
+            write(rc_sock, "조이스틱 값", strlen("조이스틱 값"));
         }
-        usleep(100000); // 0.1초마다 버튼 상태 체크
+
+
+        //0.01초 마다 실행해야 하는 작업---------------------------------------------------
+
+      
+        if(sec_counter==100){
+        //1초 마다 실행해야 하는 작업------------------------------------------------------
+        //타이머 함수
+        //1초 마다 실행해야 하는 작업------------------------------------------------------
+        }
+
+        sec_counter ++;
+        usleep(10000); // 0.01초마다 버튼 상태 체크
     }
 }
 
-void* thread_socket_to_output(void* arg) {
+void* thread_rc_socket_to_output(void* arg) {
+    int rc_sock = *(int*)arg;
+    while (1) {
+        char buffer[1024];
+        int valread = read(rc_sock, buffer, 1024);
+        if (valread > 0) {
+          //rc카에서 읽어드린 값
+          if(strcmp(buffer,"터치센서건드림")){
+            printf("Message from rc: %s\n", buffer);
+          }
+        }
+    }
+}
+
+void* thread_input_to_clnt_socket(void* arg) {
+    int client_socket = *(int*)arg;
+    int sec_counter = 0;
+    while (1) {
+        //0.01초 마다 실행해야 하는 작업---------------------------------------------------
+        if (GPIORead(PIN) == 0 ) { //조이스틱 값이 변경되었을 때
+            write(rc_sock, "조이스틱 값", strlen("조이스틱 값"));
+        }
+
+
+        //0.01초 마다 실행해야 하는 작업---------------------------------------------------
+
+      
+        if(sec_counter==100){
+        //1초 마다 실행해야 하는 작업------------------------------------------------------
+        //타이머 함수
+        //1초 마다 실행해야 하는 작업------------------------------------------------------
+        }
+
+        sec_counter ++;
+        usleep(10000); // 0.01초마다 버튼 상태 체크
+    }
+}
+
+void* thread_clnt_socket_to_output(void* arg) {
     int client_socket = *(int*)arg;
     while (1) {
         char buffer[1024];
@@ -150,10 +203,12 @@ void* thread_socket_to_output(void* arg) {
 }
 
 int main(int argc, char *argv[]) {
-    int serv_sock, clnt_sock;
+    int serv_sock, clnt_sock, rc_sock;
     struct sockaddr_in serv_addr;
     struct sockaddr_in clnt_addr;
+    struct sockaddr_in rc_addr;
     socklen_t clnt_addr_size = sizeof(clnt_addr);
+    socklen_t rc_addr_size = sizeof(rc_addr);
 
     if (argc != 2) {
         printf("Usage : %s <port>\n", argv[0]);
@@ -181,7 +236,12 @@ int main(int argc, char *argv[]) {
     }
 
     if ((clnt_sock = accept(serv_sock, (struct sockaddr *)&clnt_addr, &clnt_addr_size)) < 0) {
-        error_handling("Accept failed");
+        error_handling("Accept client socket failed");
+        exit(EXIT_FAILURE);
+    }
+
+    if ((rc_sock = accept(serv_sock, (struct sockaddr *)&rc_addr, &rc_addr_size)) < 0) {
+        error_handling("Accept rc socket failed");
         exit(EXIT_FAILURE);
     }
 
@@ -189,8 +249,6 @@ int main(int argc, char *argv[]) {
         error_handling("GPIO Export failed");
         exit(EXIT_FAILURE);
     }
-
-    usleep(10000);
 
     if (GPIODirection(POUT, OUT) == -1 || GPIODirection(PIN, IN) == -1) {
         error_handling("GPIO Direction failed");
@@ -201,18 +259,28 @@ int main(int argc, char *argv[]) {
         error_handling("GPIO Write failed");
         return 3;
     }
-    pthread_t input_thread, output_thread;
-    pthread_create(&input_thread, NULL, thread_input_to_socket, (void*)&clnt_sock);
-    pthread_create(&output_thread, NULL, thread_socket_to_output, (void*)&clnt_sock);
 
-    pthread_join(input_thread, NULL);
-    pthread_join(output_thread, NULL);
+    pthread_t rc_input_thread, rc_output_thread, clnt_input_thread, clnt_output_thread;
+    //rc카 라즈베리파이 입출력 thread
+    pthread_create(&rc_input_thread, NULL, thread_input_to_rc_socket, (void*)&rc_sock);
+    pthread_create(&rc_output_thread, NULL, thread_rc_socket_to_output, (void*)&rc_sock);
 
+    //도둑조종기 라즈베리파이 입출력 thread
+    pthread_create(&clnt_input_thread, NULL, thread_input_to_clnt_socket, (void*)&clnt_sock);
+    pthread_create(&clnt_output_thread, NULL, thread_clnt_socket_to_output, (void*)&clnt_sock);
+
+    pthread_join(rc_input_thread, NULL);
+    pthread_join(rc_output_thread, NULL);
+    pthread_join(clnt_input_thread, NULL);
+    pthread_join(clnt_output_thread, NULL);
+
+    close(rc_sock);
     close(clnt_sock);	
-	close(serv_sock);
+	  close(serv_sock);
 
     if (GPIOUnexport(POUT) == -1 || GPIOUnexport(PIN) == -1) {
         return 4;
     }
+
     return 0;
 }
